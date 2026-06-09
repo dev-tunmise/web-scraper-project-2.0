@@ -1,0 +1,226 @@
+import { useState, useEffect } from "react"
+import axios from "axios"
+
+const API = "http://127.0.0.1:8000"
+
+function ScoreBadge({ score }) {
+  if (score === null || score === undefined) return <span className="text-gray-500">N/A</span>
+  const color = score >= 75 ? "text-green-400" : score >= 50 ? "text-yellow-400" : "text-red-400"
+  return <span className={`font-bold ${color}`}>{score}</span>
+}
+
+function SiteRow({ site, onClick }) {
+  return (
+    <tr
+      onClick={() => onClick(site)}
+      className="border-b border-white/5 hover:bg-white/5 cursor-pointer transition"
+    >
+      <td className="py-3 px-4 text-white">{site.domain}</td>
+      <td className="py-3 px-4 text-gray-400 text-sm truncate max-w-[200px]">{site.page_title || "—"}</td>
+      <td className="py-3 px-4 text-gray-400">{site.response_time ? `${site.response_time}s` : "—"}</td>
+      <td className="py-3 px-4"><ScoreBadge score={site.performance_score} /></td>
+      <td className="py-3 px-4"><ScoreBadge score={site.seo_score} /></td>
+      <td className="py-3 px-4"><ScoreBadge score={site.accessibility_score} /></td>
+    </tr>
+  )
+}
+
+function SiteModal({ site, onClose }) {
+  if (!site) return null
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div className="bg-[#111] border border-white/10 rounded-2xl p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+        <div className="flex justify-between items-start mb-4">
+          <h2 className="text-white text-xl font-bold">{site.domain}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-white text-xl">✕</button>
+        </div>
+        <p className="text-gray-400 text-sm mb-4">{site.meta_description || "No description available"}</p>
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          <div className="bg-white/5 rounded-xl p-4 text-center">
+            <p className="text-gray-400 text-xs mb-1">Performance</p>
+            <ScoreBadge score={site.performance_score} />
+          </div>
+          <div className="bg-white/5 rounded-xl p-4 text-center">
+            <p className="text-gray-400 text-xs mb-1">SEO</p>
+            <ScoreBadge score={site.seo_score} />
+          </div>
+          <div className="bg-white/5 rounded-xl p-4 text-center">
+            <p className="text-gray-400 text-xs mb-1">Accessibility</p>
+            <ScoreBadge score={site.accessibility_score} />
+          </div>
+        </div>
+        {site.ai_summary && (
+          <div className="bg-white/5 rounded-xl p-4 mb-4">
+            <p className="text-gray-400 text-xs mb-2">AI Summary</p>
+            <p className="text-white text-sm">{site.ai_summary}</p>
+          </div>
+        )}
+        {site.headers && (
+          <div className="bg-white/5 rounded-xl p-4 mb-4">
+            <p className="text-gray-400 text-xs mb-2">Headers</p>
+            {JSON.parse(site.headers).slice(0, 5).map((h, i) => (
+              <p key={i} className="text-white text-sm mb-1">
+                <span className="text-blue-400 font-bold">{h.tag.toUpperCase()}</span> — {h.text}
+              </p>
+            ))}
+          </div>
+        )}
+        {site.structured_data && JSON.parse(site.structured_data).length > 0 && (
+          <div className="bg-white/5 rounded-xl p-4">
+            <p className="text-gray-400 text-xs mb-2">Structured Data</p>
+            <pre className="text-white text-xs overflow-x-auto">
+              {JSON.stringify(JSON.parse(site.structured_data), null, 2)}
+            </pre>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function IndustrySection({ industry, sites, onSiteClick }) {
+  return (
+    <div className="mb-10">
+      <h2 className="text-white text-lg font-semibold mb-3 flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full bg-blue-500 inline-block"></span>
+        {industry}
+        <span className="text-gray-500 text-sm font-normal">({sites.length} sites)</span>
+      </h2>
+      <div className="bg-[#111] border border-white/10 rounded-2xl overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-white/10 text-gray-500 text-xs uppercase">
+              <th className="py-3 px-4 text-left">Domain</th>
+              <th className="py-3 px-4 text-left">Title</th>
+              <th className="py-3 px-4 text-left">Response</th>
+              <th className="py-3 px-4 text-left">Perf</th>
+              <th className="py-3 px-4 text-left">SEO</th>
+              <th className="py-3 px-4 text-left">Access</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sites.map(site => (
+              <SiteRow key={site.id} site={site} onClick={onSiteClick} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+export default function App() {
+  const [sites, setSites] = useState([])
+  const [industries, setIndustries] = useState([])
+  const [selectedIndustry, setSelectedIndustry] = useState("All")
+  const [selectedSite, setSelectedSite] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [scraped, setScraped] = useState(0)
+const [totalCSV, setTotalCSV] = useState(0)
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [sitesRes, industriesRes] = await Promise.all([
+          axios.get(`${API}/sites`),
+          axios.get(`${API}/industries`)
+        ])
+        setSites(sitesRes.data)
+        setIndustries(["All", ...industriesRes.data])
+        const statusRes = await axios.get(`${API}/status`)
+setScraped(statusRes.data.scraped)
+setTotalCSV(statusRes.data.total)
+      } catch (err) {
+        console.error("Failed to fetch data", err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchData()
+    const interval = setInterval(fetchData, 5000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const filteredSites = selectedIndustry === "All"
+    ? sites
+    : sites.filter(s => s.industry === selectedIndustry)
+
+  const groupedByIndustry = filteredSites.reduce((acc, site) => {
+    if (!acc[site.industry]) acc[site.industry] = []
+    acc[site.industry].push(site)
+    return acc
+  }, {})
+
+  const totalSites = sites.length
+  const avgPerformance = sites.length ? Math.round(sites.reduce((a, s) => a + (s.performance_score || 0), 0) / sites.length) : 0
+  const avgSeo = sites.length ? Math.round(sites.reduce((a, s) => a + (s.seo_score || 0), 0) / sites.length) : 0
+
+  return (
+    <div className="min-h-screen bg-[#0a0a0a] text-white">
+      <div className="max-w-7xl mx-auto px-6 py-10">
+
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-white">Nigeria Web Intelligence</h1>
+          <p className="text-gray-500 mt-1">Top Nigerian websites ranked by industry and performance</p>
+        </div>
+
+        {/* Stats Bar */}
+        <div className="grid grid-cols-3 gap-4 mb-8">
+          <div className="bg-[#111] border border-white/10 rounded-2xl p-5">
+            <p className="text-gray-400 text-sm">Scraping Status</p>
+            <p className="text-white text-2xl font-bold mt-1">{scraped}/{totalCSV}</p>
+<p className={`text-xs mt-1 flex items-center gap-1 ${scraped >= totalCSV ? "text-blue-400" : "text-green-400"}`}>
+  <span className={`w-2 h-2 rounded-full inline-block ${scraped >= totalCSV ? "bg-blue-400" : "bg-green-400 animate-pulse"}`}></span>
+  {scraped >= totalCSV ? "Finished scraping!" : "Actively scraping..."}
+            </p>
+          </div>
+          <div className="bg-[#111] border border-white/10 rounded-2xl p-5">
+            <p className="text-gray-400 text-sm">Avg Performance</p>
+            <p className="text-2xl font-bold mt-1"><ScoreBadge score={avgPerformance} /></p>
+          </div>
+          <div className="bg-[#111] border border-white/10 rounded-2xl p-5">
+            <p className="text-gray-400 text-sm">Avg SEO</p>
+            <p className="text-2xl font-bold mt-1"><ScoreBadge score={avgSeo} /></p>
+          </div>
+          
+        </div>
+
+        {/* Industry Filter */}
+        <div className="flex gap-2 flex-wrap mb-8">
+          {industries.map(ind => (
+            <button
+              key={ind}
+              onClick={() => setSelectedIndustry(ind)}
+              className={`px-4 py-1.5 rounded-full text-sm transition ${
+                selectedIndustry === ind
+                  ? "bg-blue-600 text-white"
+                  : "bg-white/5 text-gray-400 hover:bg-white/10"
+              }`}
+            >
+              {ind}
+            </button>
+          ))}
+        </div>
+
+        {/* Sites by Industry */}
+        {loading ? (
+          <p className="text-gray-500">Loading sites...</p>
+        ) : Object.keys(groupedByIndustry).length === 0 ? (
+          <p className="text-gray-500">No sites scraped yet. Run the scraper to populate data.</p>
+        ) : (
+          Object.entries(groupedByIndustry).map(([industry, sites]) => (
+            <IndustrySection
+              key={industry}
+              industry={industry}
+              sites={sites}
+              onSiteClick={setSelectedSite}
+            />
+          ))
+        )}
+      </div>
+
+      <SiteModal site={selectedSite} onClose={() => setSelectedSite(null)} />
+    </div>
+  )
+}
