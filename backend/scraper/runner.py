@@ -13,6 +13,7 @@ from models.site import Site, RetryLog
 
 CSV_PATH = os.path.join(os.path.dirname(__file__), "../../data/sites.csv")
 BACKEND_URL = "http://127.0.0.1:8000"
+MAX_RETRIES = 5  # after this many retry passes, stop retrying sites that still have no score
 
 def update_progress(current, total, domain, pass_name, retry_count, complete):
     try:
@@ -26,6 +27,27 @@ def update_progress(current, total, domain, pass_name, retry_count, complete):
         }, timeout=2)
     except:
         pass
+
+def dedupe_sites(all_sites):
+    """Remove duplicate domains from the CSV rows, keeping the first occurrence.
+    Warns about any duplicates found so they can be cleaned up in the CSV itself."""
+    seen = set()
+    deduped = []
+    duplicates = []
+    for row in all_sites:
+        domain = row["domain"].strip()
+        if domain in seen:
+            duplicates.append(domain)
+            continue
+        seen.add(domain)
+        deduped.append(row)
+
+    if duplicates:
+        print(f"WARNING: Found {len(duplicates)} duplicate domain(s) in sites.csv, skipping repeats:")
+        for d in duplicates:
+            print(f"  - {d}")
+
+    return deduped
 
 def count_with_data(db, sites):
     count = 0
@@ -76,8 +98,10 @@ async def run_scraper():
     with open(CSV_PATH, newline="", encoding="utf-8") as f:
         all_sites = list(csv.DictReader(f))
 
+    all_sites = dedupe_sites(all_sites)
+
     total = len(all_sites)
-    print(f"Total sites in CSV: {total}")
+    print(f"Total unique sites in CSV: {total}")
 
     # PASS 1 — scrape brand new sites only
     print("=== PASS 1: Scraping new sites only ===")
@@ -124,6 +148,13 @@ async def run_scraper():
             update_progress(0, 0, "", "Complete!", retry_count, complete)
             break
 
+        if retry_count >= MAX_RETRIES:
+            print(f"=== Reached MAX_RETRIES ({MAX_RETRIES}). Giving up on {len(incomplete)} site(s): ===")
+            for row in incomplete:
+                print(f"  - {row['domain'].strip()}")
+            update_progress(0, 0, "", f"Stopped after {MAX_RETRIES} retries — {len(incomplete)} site(s) never got data", retry_count, complete)
+            break
+
         retry_count += 1
         retry_total = len(incomplete)
         print(f"=== Retry #{retry_count}: {retry_total} incomplete sites ===")
@@ -155,4 +186,8 @@ async def run_scraper():
     print("=== Scraping fully complete! ===")
 
 if __name__ == "__main__":
-    asyncio.run(run_scraper())
+    try:
+        asyncio.run(run_scraper())
+    except KeyboardInterrupt:
+        print("\n=== Scraper stopped manually ===")
+        update_progress(0, 0, "", "Idle", 0, 0)
