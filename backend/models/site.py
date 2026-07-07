@@ -10,21 +10,31 @@ class Site(Base):
     id = Column(Integer, primary_key=True, index=True)
     domain = Column(String, unique=True, index=True)
     industry = Column(String, index=True)
-    
+
     # Scraped data
     page_title = Column(String, nullable=True)
     meta_description = Column(Text, nullable=True)
-    headers = Column(Text, nullable=True)        # stored as JSON string
-    structured_data = Column(Text, nullable=True) # stored as JSON string
-    response_time = Column(Float, nullable=True)  # in seconds
-    
+    headers = Column(Text, nullable=True)
+    structured_data = Column(Text, nullable=True)
+    response_time = Column(Float, nullable=True)
+
     # Scores
     performance_score = Column(Float, nullable=True)
     seo_score = Column(Float, nullable=True)
     accessibility_score = Column(Float, nullable=True)
-    
+
     # AI summary
     ai_summary = Column(Text, nullable=True)
-    
+
     # Timestamp
     scraped_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class RetryLog(Base):
+    __tablename__ = "retry_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    retry_number = Column(Integer)
+    total_retried = Column(Integer)
+    got_data = Column(Integer)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)

@@ -2,10 +2,12 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from db import get_db, init_db, SessionLocal
+from models.site import Site, RetryLog
+import csv
+import os
 
 app = FastAPI()
 
-# This allows our React frontend to talk to the backend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -14,12 +16,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Create tables when the server starts
+scraping_progress = {"current": 0, "total": 0, "domain": "", "pass": "Idle", "retry_count": 0, "complete": 0}
+
 @app.on_event("startup")
 def startup():
     init_db()
+    scraping_progress.update({"current": 0, "total": 0, "domain": "", "pass": "Idle", "retry_count": 0, "complete": 0})
 
-# Get all sites, optionally filtered by industry
 @app.get("/sites")
 def get_sites(industry: str = None, db: Session = Depends(get_db)):
     query = db.query(Site)
@@ -27,12 +30,10 @@ def get_sites(industry: str = None, db: Session = Depends(get_db)):
         query = query.filter(Site.industry == industry)
     return query.order_by(Site.performance_score.desc()).all()
 
-# Get a single site by its ID
 @app.get("/sites/{site_id}")
 def get_site(site_id: int, db: Session = Depends(get_db)):
     return db.query(Site).filter(Site.id == site_id).first()
 
-# Get all unique industries
 @app.get("/industries")
 def get_industries(db: Session = Depends(get_db)):
     results = db.query(Site.industry).distinct().all()
@@ -40,7 +41,6 @@ def get_industries(db: Session = Depends(get_db)):
 
 @app.get("/status")
 def get_status(db: Session = Depends(get_db)):
-    import csv, os
     CSV_PATH = os.path.join(os.path.dirname(__file__), "../data/sites.csv")
     try:
         with open(CSV_PATH, newline="", encoding="utf-8") as f:
@@ -48,4 +48,28 @@ def get_status(db: Session = Depends(get_db)):
     except:
         total = 0
     scraped = db.query(Site).count()
-    return {"scraped": scraped, "total": total}
+    complete = db.query(Site).filter(
+        Site.performance_score != None,
+        Site.performance_score > 0
+    ).count()
+    return {"scraped": scraped, "total": total, "complete": complete}
+
+@app.post("/progress")
+def update_progress(data: dict):
+    scraping_progress.update(data)
+    return {"ok": True}
+
+@app.get("/progress")
+def get_progress(db: Session = Depends(get_db)):
+    retry_logs = db.query(RetryLog).order_by(RetryLog.retry_number).all()
+    return {
+        **scraping_progress,
+        "retries": [
+            {
+                "retry_number": r.retry_number,
+                "total": r.total_retried,
+                "got_data": r.got_data
+            }
+            for r in retry_logs
+        ]
+    }

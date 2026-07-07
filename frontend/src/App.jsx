@@ -55,7 +55,7 @@ function SiteModal({ site, onClose }) {
             <p className="text-white text-sm">{site.ai_summary}</p>
           </div>
         )}
-        {site.headers && (
+        {site.headers && JSON.parse(site.headers).length > 0 && (
           <div className="bg-white/5 rounded-xl p-4 mb-4">
             <p className="text-gray-400 text-xs mb-2">Headers</p>
             {JSON.parse(site.headers).slice(0, 5).map((h, i) => (
@@ -73,6 +73,68 @@ function SiteModal({ site, onClose }) {
             </pre>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+function ProgressModal({ onClose, scraped, totalCSV, progress }) {
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div className="bg-[#111] border border-white/10 rounded-2xl p-6 max-w-md w-full max-h-[80vh] overflow-y-auto">
+        <div className="flex justify-between items-start mb-6">
+          <h2 className="text-white text-lg font-bold">Scraping Details</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-white text-xl">✕</button>
+        </div>
+        <div className="space-y-4">
+
+          <div className="bg-white/5 rounded-xl p-4">
+            <p className="text-gray-400 text-xs mb-1">Total scraped</p>
+            <p className="text-white font-bold text-lg">{scraped}/{totalCSV}</p>
+            <div className="w-full bg-white/10 rounded-full h-1.5 mt-2">
+              <div
+                className="bg-white h-1.5 rounded-full transition-all"
+                style={{ width: `${totalCSV ? (scraped / totalCSV) * 100 : 0}%` }}
+              ></div>
+            </div>
+          </div>
+
+          <div className="bg-white/5 rounded-xl p-4">
+            <p className="text-gray-400 text-xs mb-1">With data</p>
+            <p className="text-blue-400 font-bold text-lg">{progress.complete}/{totalCSV}</p>
+            <div className="w-full bg-white/10 rounded-full h-1.5 mt-2">
+              <div
+                className="bg-blue-400 h-1.5 rounded-full transition-all"
+                style={{ width: `${totalCSV ? (progress.complete / totalCSV) * 100 : 0}%` }}
+              ></div>
+            </div>
+          </div>
+
+          <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+            <p className="text-gray-400 text-xs mb-2">Live Activity</p>
+            {progress.pass === "Idle" ? (
+              <p className="text-gray-500 font-bold">⏸ Scraper is stopped</p>
+            ) : progress.pass === "Complete!" ? (
+              <p className="text-blue-400 font-bold">✓ All done!</p>
+            ) : (
+              <>
+                <p className="text-green-400 font-bold flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block"></span>
+                  {progress.pass}
+                </p>
+                <p className="text-white text-sm mt-2 font-mono truncate">{progress.domain || "—"}</p>
+                <p className="text-gray-400 text-xs mt-1">{progress.current} of {progress.total} sites</p>
+                <div className="w-full bg-white/10 rounded-full h-1.5 mt-2">
+                  <div
+                    className="bg-green-400 h-1.5 rounded-full transition-all"
+                    style={{ width: `${progress.total ? (progress.current / progress.total) * 100 : 0}%` }}
+                  ></div>
+                </div>
+              </>
+            )}
+          </div>
+
+        </div>
       </div>
     </div>
   )
@@ -116,20 +178,24 @@ export default function App() {
   const [selectedSite, setSelectedSite] = useState(null)
   const [loading, setLoading] = useState(true)
   const [scraped, setScraped] = useState(0)
-const [totalCSV, setTotalCSV] = useState(0)
+  const [totalCSV, setTotalCSV] = useState(0)
+  const [progress, setProgress] = useState({ current: 0, total: 0, domain: "", pass: "Idle", retry_count: 0, complete: 0, retries: [] })
+  const [showProgress, setShowProgress] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [sitesRes, industriesRes] = await Promise.all([
+        const [sitesRes, industriesRes, statusRes, progressRes] = await Promise.all([
           axios.get(`${API}/sites`),
-          axios.get(`${API}/industries`)
+          axios.get(`${API}/industries`),
+          axios.get(`${API}/status`),
+          axios.get(`${API}/progress`)
         ])
         setSites(sitesRes.data)
         setIndustries(["All", ...industriesRes.data])
-        const statusRes = await axios.get(`${API}/status`)
-setScraped(statusRes.data.scraped)
-setTotalCSV(statusRes.data.total)
+        setScraped(statusRes.data.scraped)
+        setTotalCSV(statusRes.data.total)
+        setProgress({ ...progressRes.data, complete: statusRes.data.complete })
       } catch (err) {
         console.error("Failed to fetch data", err)
       } finally {
@@ -137,7 +203,7 @@ setTotalCSV(statusRes.data.total)
       }
     }
     fetchData()
-    const interval = setInterval(fetchData, 5000)
+    const interval = setInterval(fetchData, 2000)
     return () => clearInterval(interval)
   }, [])
 
@@ -151,9 +217,9 @@ setTotalCSV(statusRes.data.total)
     return acc
   }, {})
 
-  const totalSites = sites.length
-  const avgPerformance = sites.length ? Math.round(sites.reduce((a, s) => a + (s.performance_score || 0), 0) / sites.length) : 0
-  const avgSeo = sites.length ? Math.round(sites.reduce((a, s) => a + (s.seo_score || 0), 0) / sites.length) : 0
+  const sitesWithData = sites.filter(s => s.performance_score && s.performance_score > 0)
+  const avgPerformance = sitesWithData.length ? Math.round(sitesWithData.reduce((a, s) => a + s.performance_score, 0) / sitesWithData.length) : 0
+  const avgSeo = sitesWithData.length ? Math.round(sitesWithData.reduce((a, s) => a + (s.seo_score || 0), 0) / sitesWithData.length) : 0
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
@@ -167,23 +233,40 @@ setTotalCSV(statusRes.data.total)
 
         {/* Stats Bar */}
         <div className="grid grid-cols-3 gap-4 mb-8">
-          <div className="bg-[#111] border border-white/10 rounded-2xl p-5">
+
+          {/* Scraping Status Card */}
+          <div
+            className="bg-[#111] border border-white/10 rounded-2xl p-5 cursor-pointer hover:border-white/25 transition"
+            onClick={() => setShowProgress(true)}
+          >
             <p className="text-gray-400 text-sm">Scraping Status</p>
             <p className="text-white text-2xl font-bold mt-1">{scraped}/{totalCSV}</p>
-<p className={`text-xs mt-1 flex items-center gap-1 ${scraped >= totalCSV ? "text-blue-400" : "text-green-400"}`}>
-  <span className={`w-2 h-2 rounded-full inline-block ${scraped >= totalCSV ? "bg-blue-400" : "bg-green-400 animate-pulse"}`}></span>
-  {scraped >= totalCSV ? "Finished scraping!" : "Actively scraping..."}
+            <p className="text-blue-400 text-xs mt-1">✓ With data: {progress.complete}/{totalCSV}</p>
+            <p className={`text-xs mt-1 flex items-center gap-1 ${
+              progress.pass === "Idle" ? "text-gray-400" :
+              progress.pass === "Complete!" ? "text-blue-400" : "text-green-400"
+            }`}>
+              <span className={`w-2 h-2 rounded-full inline-block ${
+                progress.pass === "Idle" ? "bg-gray-400" :
+                progress.pass === "Complete!" ? "bg-blue-400" :
+                "bg-green-400 animate-pulse"
+              }`}></span>
+              {progress.pass === "Complete!" ? "Finished!" :
+               progress.pass === "Idle" ? "Scraper is stopped" :
+               "Actively scraping..."} · tap for details
             </p>
           </div>
+
           <div className="bg-[#111] border border-white/10 rounded-2xl p-5">
             <p className="text-gray-400 text-sm">Avg Performance</p>
             <p className="text-2xl font-bold mt-1"><ScoreBadge score={avgPerformance} /></p>
           </div>
+
           <div className="bg-[#111] border border-white/10 rounded-2xl p-5">
             <p className="text-gray-400 text-sm">Avg SEO</p>
             <p className="text-2xl font-bold mt-1"><ScoreBadge score={avgSeo} /></p>
           </div>
-          
+
         </div>
 
         {/* Industry Filter */}
@@ -207,7 +290,7 @@ setTotalCSV(statusRes.data.total)
         {loading ? (
           <p className="text-gray-500">Loading sites...</p>
         ) : Object.keys(groupedByIndustry).length === 0 ? (
-          <p className="text-gray-500">No sites scraped yet. Run the scraper to populate data.</p>
+          <p className="text-gray-500">Loading data... Make sure the backend is running.</p>
         ) : (
           Object.entries(groupedByIndustry).map(([industry, sites]) => (
             <IndustrySection
@@ -221,6 +304,15 @@ setTotalCSV(statusRes.data.total)
       </div>
 
       <SiteModal site={selectedSite} onClose={() => setSelectedSite(null)} />
+
+      {showProgress && (
+        <ProgressModal
+          onClose={() => setShowProgress(false)}
+          scraped={scraped}
+          totalCSV={totalCSV}
+          progress={progress}
+        />
+      )}
     </div>
   )
 }

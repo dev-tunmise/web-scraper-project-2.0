@@ -1,0 +1,24 @@
+BACKEND
+cd ~/Desktop/work/web-scraper-project-2.0/backend
+source ../venv/Scripts/activate
+uvicorn main:app --reload
+
+FRONTEND
+cd ~/Desktop/work/web-scraper-project-2.0/frontend
+pnpm dev
+
+SCRAPER
+cd ~/Desktop/work/web-scraper-project-2.0/backend
+source ../venv/Scripts/activate
+python -m scraper.runner
+
+
+
+it should stop displaying actively scraping, when i intentionally stop the scraping in the terminal
+it should get to 220/220
+add up to 1024 sites
+confirm if theres a need of rescraping each site that failed over and over again.
+
+crosscheck for reppititons in sites.scv
+i need a search bar on the front end
+
